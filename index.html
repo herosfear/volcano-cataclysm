@@ -4,68 +4,56 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Volcano Cataclysm V10</title>
+    <link rel="manifest" href="manifest.json">
     <style>
-        body { margin: 0; background: #1a1a1a; color: white; font-family: sans-serif; overflow: hidden; touch-action: none; }
-        canvas { display: block; background: #2c3e50; margin: 0 auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+        body { margin: 0; background: #0b1116; color: white; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        canvas { display: block; background: #1a2a3a; margin: 0 auto; }
+        #ui { position: absolute; top: 15px; left: 15px; pointer-events: none; text-shadow: 2px 2px 4px #000; }
+        #msg { position: absolute; bottom: 20px; width: 100%; text-align: center; color: #ffae00; font-weight: bold; }
     </style>
 </head>
 <body>
     <div id="ui">
-        <div>Gold: <span id="goldDisp">0</span></div>
-        <div>Heat: <span id="heatDisp">0</span>%</div>
+        <div style="font-size: 20px;">Gold: <span id="goldDisp">0</span></div>
+        <div style="color: #ff4500;">Heat: <span id="heatDisp">0</span>%</div>
     </div>
+    <div id="msg">TAP SCREEN TO START</div>
     <canvas id="gameCanvas"></canvas>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const spriteSheet = new Image();
-spriteSheet.src = 'v10_volcano_master_atlas.png'; // Make sure the name matches!
+spriteSheet.src = 'v10_volcano_master_atlas.png';
 
-// --- Game State & Constants ---
-let gameState = "PLAYING"; 
+// --- Game Settings ---
+let gameState = "START";
 let gold = 0;
-const SAVE_KEY = "VolcanoCataclysm_V10";
+let frameCount = 0;
 
-// --- Player/Monkey Devil Object ---
-let player = {
-    x: 160, y: 400,
-    width: 64, height: 64,
-    heat: 0,
-    isLegendary: false,
-    sheetY: 0, // Row 1
-    frame: 0
+// --- Sprite Slicing Map (Adjusted for your sheet) ---
+const sprites = {
+    devil: { y: 55, w: 90, h: 90, frames: 6 },      // Row 1: Monkey Devil
+    trio:  { y: 195, w: 90, h: 90, frames: 4 },     // Row 2: Legacy Trio
+    sentry: { y: 465, w: 95, h: 95, frames: 6 },    // Row 3: Magma Sentry
+    boss:  { y: 625, w: 125, h: 100, frames: 4 },   // Row 4: Dreadbloon
+    boom:  { y: 805, w: 95, h: 95, frames: 5 }      // Row 5: Explosion
 };
 
-// --- Boss Object ---
-let dreadbloon = {
-    x: 100, y: -150,
-    hp: 1000, maxHp: 1000,
-    isArmored: true,
-    active: true
-};
+let player = { x: 150, y: 0, frame: 0, heat: 0 };
+let boss = { x: 120, y: -150, hp: 1000, active: true };
 
-// --- Gacha System ---
-let gacha = { active: false, state: "closed", x: 100, y: 200 };
-
-// --- Main Loop ---
 function update() {
     if (gameState !== "PLAYING") return;
 
-    // Heat Logic
-    if (player.heat < 100) player.heat += 0.1;
+    frameCount++;
+    if (frameCount % 10 === 0) player.frame = (player.frame + 1) % sprites.devil.frames;
 
-    // Boss Logic
-    if (dreadbloon.active) {
-        dreadbloon.y += 0.5;
-        if (dreadbloon.hp <= 500 && dreadbloon.isArmored) {
-            dreadbloon.isArmored = false; // Phase Transition
-        }
-    }
-
-    // Animation frames
-    if (Date.now() % 150 < 20) player.frame = (player.frame + 1) % 4;
+    // Movement & Heat
+    if (player.heat < 100) player.heat += 0.05;
+    
+    // Boss entry
+    if (boss.y < 100) boss.y += 1;
 
     document.getElementById('goldDisp').innerText = gold;
     document.getElementById('heatDisp').innerText = Math.floor(player.heat);
@@ -74,18 +62,27 @@ function update() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw Player
-    ctx.drawImage(spriteSheet, player.frame * 64, player.sheetY, 64, 64, player.x, player.y, 64, 64);
-
-    // Draw Boss
-    if (dreadbloon.active) {
-        let bossSourceX = dreadbloon.isArmored ? 0 : 128;
-        ctx.drawImage(spriteSheet, bossSourceX, 192, 128, 128, dreadbloon.x, dreadbloon.y, 128, 128);
+    if (gameState === "START") {
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.fillText("ASSETS LOADING...", canvas.width/2, canvas.height/2);
     }
 
-    // Draw Gacha if active
-    if (gacha.active) {
-        ctx.drawImage(spriteSheet, 192, 512, 64, 64, gacha.x, gacha.y, 128, 128);
+    // Draw Monkey Devil (Slicing Row 1)
+    ctx.drawImage(
+        spriteSheet,
+        player.frame * 96, sprites.devil.y, 85, 85,
+        player.x, player.y, 100, 100
+    );
+
+    // Draw Dreadbloon (Slicing Row 4)
+    if (boss.active) {
+        let bossFrame = Math.floor(frameCount / 15) % sprites.boss.frames;
+        ctx.drawImage(
+            spriteSheet,
+            bossFrame * 128, sprites.boss.y, 120, 100,
+            boss.x, boss.y, 180, 150
+        );
     }
 }
 
@@ -95,16 +92,30 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// --- Mobile Scaling ---
+// Mobile Resize
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    player.y = canvas.height - 150;
+    player.x = canvas.width / 2 - 50;
+    boss.x = canvas.width / 2 - 90;
 }
-window.addEventListener('resize', resize);
-resize();
 
-// --- Initialization ---
-spriteSheet.onload = () => { gameLoop(); };
+// Input to start
+window.addEventListener('touchstart', () => {
+    if (gameState === "START") {
+        gameState = "PLAYING";
+        document.getElementById('msg').style.display = 'none';
+    }
+});
+
+window.addEventListener('resize', resize);
+spriteSheet.onload = () => { resize(); gameLoop(); };
+
+// Fallback if image fails
+spriteSheet.onerror = () => {
+    alert("Image not found! Make sure it's named v10_volcano_master_atlas.png");
+};
 </script>
 </body>
 </html>
