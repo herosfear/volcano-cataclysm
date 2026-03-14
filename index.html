@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Volcano Cataclysm V10</title>
+    <style>
+        body { margin: 0; background: #1a1a1a; color: white; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        canvas { display: block; background: #2c3e50; margin: 0 auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div>Gold: <span id="goldDisp">0</span></div>
+        <div>Heat: <span id="heatDisp">0</span>%</div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const spriteSheet = new Image();
+spriteSheet.src = 'v10_volcano_master_atlas.png'; // Make sure the name matches!
+
+// --- Game State & Constants ---
+let gameState = "PLAYING"; 
+let gold = 0;
+const SAVE_KEY = "VolcanoCataclysm_V10";
+
+// --- Player/Monkey Devil Object ---
+let player = {
+    x: 160, y: 400,
+    width: 64, height: 64,
+    heat: 0,
+    isLegendary: false,
+    sheetY: 0, // Row 1
+    frame: 0
+};
+
+// --- Boss Object ---
+let dreadbloon = {
+    x: 100, y: -150,
+    hp: 1000, maxHp: 1000,
+    isArmored: true,
+    active: true
+};
+
+// --- Gacha System ---
+let gacha = { active: false, state: "closed", x: 100, y: 200 };
+
+// --- Main Loop ---
+function update() {
+    if (gameState !== "PLAYING") return;
+
+    // Heat Logic
+    if (player.heat < 100) player.heat += 0.1;
+
+    // Boss Logic
+    if (dreadbloon.active) {
+        dreadbloon.y += 0.5;
+        if (dreadbloon.hp <= 500 && dreadbloon.isArmored) {
+            dreadbloon.isArmored = false; // Phase Transition
+        }
+    }
+
+    // Animation frames
+    if (Date.now() % 150 < 20) player.frame = (player.frame + 1) % 4;
+
+    document.getElementById('goldDisp').innerText = gold;
+    document.getElementById('heatDisp').innerText = Math.floor(player.heat);
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw Player
+    ctx.drawImage(spriteSheet, player.frame * 64, player.sheetY, 64, 64, player.x, player.y, 64, 64);
+
+    // Draw Boss
+    if (dreadbloon.active) {
+        let bossSourceX = dreadbloon.isArmored ? 0 : 128;
+        ctx.drawImage(spriteSheet, bossSourceX, 192, 128, 128, dreadbloon.x, dreadbloon.y, 128, 128);
+    }
+
+    // Draw Gacha if active
+    if (gacha.active) {
+        ctx.drawImage(spriteSheet, 192, 512, 64, 64, gacha.x, gacha.y, 128, 128);
+    }
+}
+
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// --- Mobile Scaling ---
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- Initialization ---
+spriteSheet.onload = () => { gameLoop(); };
+</script>
+</body>
+</html>
