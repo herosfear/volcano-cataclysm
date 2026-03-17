@@ -70,12 +70,20 @@ function checkPlacement(x, y) {
     return y < canvas.height - 110;
 }
 
-// --- Input Handling ---
+// --- Fixed Input Handling ---
 canvas.addEventListener('touchstart', (e) => {
+    // 1. Force the game to start if it hasn't yet
+    if (gameState === "START") {
+        gameState = "PLAYING";
+        document.getElementById('msg').style.display = 'none';
+        return; // Stop here so we don't accidentally buy a tower on the first tap
+    }
+
     const touch = e.touches[0];
     const tx = touch.clientX;
     const ty = touch.clientY;
 
+    // 2. Shop Interaction
     if (ty > canvas.height - 100) {
         let index = Math.floor(tx / (canvas.width / 3));
         if (shopItems[index] && gold >= shopItems[index].cost) {
