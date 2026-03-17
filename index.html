@@ -6,32 +6,29 @@
     <title>Volcano Cataclysm V10</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1116; font-family: 'Courier New', Courier, monospace; }
-        #gameCanvas { 
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
-            display: block; z-index: 1; touch-action: none; 
-            image-rendering: -webkit-optimize-contrast; image-rendering: pixelated;
-        }
+        #gameCanvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: block; z-index: 1; touch-action: none; }
         #ui-layer { position: absolute; top: 20px; left: 20px; z-index: 10; color: #fff; pointer-events: none; text-shadow: 2px 2px #000; }
-        .stat { font-size: 22px; font-weight: bold; margin-bottom: 5px; }
-        #debug-bar { color: #00ff00; font-size: 12px; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 4px; border: 1px solid #333; }
+        #debug-bar { color: #00ff00; font-size: 11px; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 4px; pointer-events: auto; }
     </style>
 </head>
 <body>
     <div id="ui-layer">
         <div class="stat">GOLD: <span id="goldDisp">500</span></div>
-        <div class="stat" style="color: #ff4500;">HEAT: <span id="heatDisp">0</span>%</div>
-        <div id="debug-bar">SYSTEM: STANDBY...</div>
+        <div id="debug-bar">
+            STATUS: <span id="engineStatus">INITIALIZING...</span><br>
+            ENEMIES: <span id="enCount">0</span> | FPS: <span id="fpsCount">0</span>
+        </div>
     </div>
     <canvas id="gameCanvas"></canvas>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d', { alpha: false }); // Optimization: no alpha for the main canvas background
-const debugDisp = document.getElementById('debug-bar');
-
+const ctx = canvas.getContext('2d');
 const spriteSheet = new Image();
-spriteSheet.src = 'v10_volcano_master_atlas.PNG'; 
+spriteSheet.crossOrigin = "anonymous"; // Needed for pixel manipulation
+spriteSheet.src = 'v10_volcano_master_atlas.PNG';
 
+let transparentSheet = null; 
 let gold = 500;
 let heat = 0;
 let gameActive = false;
@@ -40,107 +37,206 @@ let enemies = [];
 let projectiles = [];
 let selectedTower = null;
 
-// Delta Time & Loop Optimization
+// Logic Timing
 let lastTime = performance.now();
+const deltaTime = 1/60;
 let accumulator = 0;
-const deltaTime = 1 / 60; // Target 60fps logic
 let spawnTimer = 0;
 
-const path = [{x: -50, y: 250}, {x: 250, y: 250}, {x: 250, y: 550}, {x: 650, y: 550}];
+// Path adjustments for visible testing
+const path = [{x: -50, y: 300}, {x: 200, y: 300}, {x: 200, y: 500}, {x: 800, y: 500}];
 
+// Refined Coordinates based on your Atlas
 const shopItems = [
-    { type: 'Devil', sx: 5, sy: 5, sw: 90, sh: 90, cost: 250, range: 180, fireRate: 0.6 },
-    { type: 'Dart',  sx: 5, sy: 105, sw: 90, sh: 90, cost: 50, range: 140, fireRate: 0.4 },
-    { type: 'Ice',   sx: 105, sy: 105, sw: 90, sh: 90, cost: 150, range: 110, fireRate: 1.0 }
+    { type: 'Devil', sx: 0, sy: 50, sw: 70, sh: 70, cost: 250, range: 150, fireRate: 0.6 },
+    { type: 'Dart',  sx: 0, sy: 195, sw: 70, sh: 70, cost: 50, range: 120, fireRate: 0.4 },
+    { type: 'Ice',   sx: 320, sy: 195, sw: 70, sh: 70, cost: 150, range: 100, fireRate: 1.0 }
 ];
 
-function log(msg) { debugDisp.innerText = "LOG: " + msg; }
+// --- Task 3: Background Removal (Chroma Key) ---
+function processTransparency() {
+    const tempCanvas = document.createElement('canvas');
+    const tCtx = tempCanvas.getContext('2d');
+    tempCanvas.width = spriteSheet.width;
+    tempCanvas.height = spriteSheet.height;
+    
+    tCtx.drawImage(spriteSheet, 0, 0);
+    const imgData = tCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+    const data = imgData.data;
 
-// --- Improved Touch Controls ---
+    for (let i = 0; i < data.length; i += 4) {
+        // If pixel is white (or very close to white), make it transparent
+        if (data[i] > 240 && data[i+1] > 240 && data[i+2] > 240) {
+            data[i+3] = 0; 
+        }
+    }
+    tCtx.putImageData(imgData, 0, 0);
+    transparentSheet = tempCanvas;
+    document.getElementById('engineStatus').innerText = "SYSTEMS ONLINE";
+}
+
+// --- Input ---
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    const touch = e.touches[0];
-    const tx = touch.clientX;
-    const ty = touch.clientY;
+    const tx = e.touches[0].clientX;
+    const ty = e.touches[0].clientY;
 
-    if (!gameActive) { gameActive = true; log("VOLCANO ACTIVE"); return; }
+    if (!gameActive) { gameActive = true; return; }
 
     if (ty > window.innerHeight - 120) {
         let index = Math.floor(tx / (window.innerWidth / 3));
         if (shopItems[index] && gold >= shopItems[index].cost) {
-            selectedTower = { ...shopItems[index], x: tx - 45, y: ty - 45, lastFired: 0 };
-            log(`ARMING: ${selectedTower.type.toUpperCase()}`);
+            selectedTower = { ...shopItems[index], x: tx - 35, y: ty - 35, lastFired: 0 };
         }
     }
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
     if (selectedTower) {
-        e.preventDefault();
-        selectedTower.x = e.touches[0].clientX - 45;
-        selectedTower.y = e.touches[0].clientY - 45;
+        selectedTower.x = e.touches[0].clientX - 35;
+        selectedTower.y = e.touches[0].clientY - 35;
     }
 }, { passive: false });
 
 canvas.addEventListener('touchend', () => {
     if (selectedTower) {
         gold -= selectedTower.cost;
-        towers.push({ ...selectedTower, id: Date.now() });
-        log("TOWER DEPLOYED");
+        towers.push({ ...selectedTower, id: Math.random() });
     }
     selectedTower = null;
 }, { passive: false });
 
-// --- Core Logic (Task 1 & 2) ---
-function updateLogic(dt) {
+// --- Task 1: Enemy & Logic Fix ---
+function update(dt) {
     if (!gameActive) return;
 
     spawnTimer += dt;
-    if (spawnTimer > 1.8) { 
-        enemies.push({ x: path[0].x, y: path[0].y, pIdx: 0, speed: 110, id: Math.random() });
+    if (spawnTimer > 2.0) {
+        // Spawning "Dreadbloon" enemy from your sheet (roughly y:600)
+        enemies.push({ 
+            x: path[0].x, y: path[0].y, 
+            pIdx: 0, speed: 80, id: Math.random(),
+            hp: 5
+        });
         spawnTimer = 0;
     }
 
     towers.forEach(t => {
         t.lastFired += dt;
         if (t.lastFired >= t.fireRate) {
-            // Find first enemy in range
-            let target = enemies.find(en => Math.hypot((t.x + 45) - en.x, (t.y + 45) - en.y) < t.range);
+            let target = enemies.find(en => Math.hypot((t.x+35)-en.x, (t.y+35)-en.y) < t.range);
             if (target) {
-                projectiles.push({ x: t.x + 45, y: t.y + 45, targetId: target.id, speed: 350 });
+                projectiles.push({ x: t.x+35, y: t.y+35, target: target, speed: 300 });
                 t.lastFired = 0;
             }
         }
     });
 
-    // Projectiles
-    for (let i = projectiles.length - 1; i >= 0; i--) {
-        let p = projectiles[i];
-        let target = enemies.find(e => e.id === p.targetId);
-        
-        if (!target) { projectiles.splice(i, 1); continue; }
-
-        let dx = target.x - p.x;
-        let dy = target.y - p.y;
+    // Projectile & Enemy updates (Simplified for performance)
+    projectiles.forEach((p, pi) => {
+        let dx = p.target.x - p.x;
+        let dy = p.target.y - p.y;
         let dist = Math.hypot(dx, dy);
-
-        if (dist < 15) {
-            enemies.splice(enemies.indexOf(target), 1);
-            projectiles.splice(i, 1);
-            gold += 20;
+        if (dist < 10) {
+            p.target.hp--;
+            projectiles.splice(pi, 1);
+            if (p.target.hp <= 0) {
+                enemies.splice(enemies.indexOf(p.target), 1);
+                gold += 15;
+            }
         } else {
-            p.x += (dx / dist) * p.speed * dt;
-            p.y += (dy / dist) * p.speed * dt;
+            p.x += (dx/dist) * p.speed * dt;
+            p.y += (dy/dist) * p.speed * dt;
         }
-    }
+    });
 
-    // Enemies
-    for (let i = enemies.length - 1; i >= 0; i--) {
-        let en = enemies[i];
-        let targetNode = path[en.pIdx + 1];
-        if (!targetNode) { 
-            enemies.splice(i, 1); 
-            heat += 10; 
+    enemies.forEach((en, ei) => {
+        let target = path[en.pIdx + 1];
+        if (!target) { enemies.splice(ei, 1); return; }
+        let dx = target.x - en.x;
+        let dy = target.y - en.y;
+        let dist = Math.hypot(dx, dy);
+        if (dist < 5) en.pIdx++;
+        else {
+            en.x += (dx/dist) * en.speed * dt;
+            en.y += (dy/dist) * en.speed * dt;
+        }
+    });
+
+    document.getElementById('goldDisp').innerText = gold;
+    document.getElementById('enCount').innerText = enemies.length;
+}
+
+function draw() {
+    ctx.fillStyle = "#0b1116";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (!transparentSheet) return;
+
+    // Road
+    ctx.strokeStyle = "#332211"; ctx.lineWidth = 50; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y);
+    path.forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
+
+    // Draw Towers
+    towers.forEach(t => {
+        ctx.drawImage(transparentSheet, t.sx, t.sy, t.sw, t.sh, t.x, t.y, 70, 70);
+    });
+
+    // Draw Enemies (Dreadbloon row)
+    enemies.forEach(en => {
+        ctx.drawImage(transparentSheet, 10, 600, 80, 80, en.x - 30, en.y - 30, 60, 60);
+    });
+
+    // Draw Projectiles
+    ctx.fillStyle = "#ff0";
+    projectiles.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); });
+
+    // UI & Shop
+    ctx.fillStyle = "rgba(0,0,0,0.8)";
+    ctx.fillRect(0, canvas.height-110, canvas.width, 110);
+    shopItems.forEach((item, i) => {
+        let x = i * (canvas.width/3) + (canvas.width/6) - 30;
+        ctx.drawImage(transparentSheet, item.sx, item.sy, item.sw, item.sh, x, canvas.height-95, 60, 60);
+    });
+
+    if (selectedTower) {
+        ctx.beginPath(); ctx.arc(selectedTower.x+35, selectedTower.y+35, selectedTower.range, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(255,255,255,0.1)"; ctx.fill();
+        ctx.drawImage(transparentSheet, selectedTower.sx, selectedTower.sy, selectedTower.sw, selectedTower.sh, selectedTower.x, selectedTower.y, 70, 70);
+    }
+}
+
+// --- Task 2: Optimized Loop ---
+function gameLoop(time) {
+    let frameTime = (time - lastTime) / 1000;
+    lastTime = time;
+    if (frameTime > 0.1) frameTime = 0.016;
+    accumulator += frameTime;
+
+    while (accumulator >= deltaTime) {
+        update(deltaTime);
+        accumulator -= deltaTime;
+    }
+    draw();
+    document.getElementById('fpsCount').innerText = Math.round(1/frameTime);
+    requestAnimationFrame(gameLoop);
+}
+
+window.addEventListener('resize', () => { 
+    canvas.width = window.innerWidth; 
+    canvas.height = window.innerHeight; 
+});
+
+spriteSheet.onload = () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    processTransparency();
+    requestAnimationFrame(gameLoop);
+};
+</script>
+</body>
+</html>     heat += 10; 
             continue; 
         }
         let dx = targetNode.x - en.x;
