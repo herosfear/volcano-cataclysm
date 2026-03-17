@@ -8,183 +8,169 @@
     <style>
         body { margin: 0; background: #0b1116; color: white; font-family: sans-serif; overflow: hidden; touch-action: none; }
         canvas { display: block; background: #1a2a3a; margin: 0 auto; }
-        #ui { position: absolute; top: 15px; left: 15px; pointer-events: none; text-shadow: 2px 2px 4px #000; }
-        #msg { position: absolute; bottom: 20px; width: 100%; text-align: center; color: #ffae00; font-weight: bold; }
+        #ui { position: absolute; top: 15px; left: 15px; pointer-events: none; text-shadow: 2px 2px 4px #000; z-index: 10; }
+        #msg { position: absolute; bottom: 120px; width: 100%; text-align: center; color: #ffae00; font-weight: bold; pointer-events: none; }
     </style>
 </head>
 <body>
     <div id="ui">
-        <div style="font-size: 20px;">Gold: <span id="goldDisp">0</span></div>
+        <div style="font-size: 20px;">Gold: <span id="goldDisp">500</span></div>
         <div style="color: #ff4500;">Heat: <span id="heatDisp">0</span>%</div>
     </div>
-    <div id="msg">TAP SCREEN TO START</div>
+    <div id="msg">DRAG MONKEYS TO DEFEND THE PATH</div>
     <canvas id="gameCanvas"></canvas>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const spriteSheet = new Image();
-spriteSheet.src = 'v10_volcano_master_atlas.PNG';
+spriteSheet.src = 'v10_volcano_master_atlas.PNG'; 
 
-// --- Game Settings ---
-let gameState = "START";
-let gold = 0;
-let frameCount = 0;
-
-// --- Sprite Slicing Map (Adjusted for your sheet) ---
-const sprites = {
-    devil: { y: 55, w: 90, h: 90, frames: 6 },      // Row 1: Monkey Devil
-    trio:  { y: 195, w: 90, h: 90, frames: 4 },     // Row 2: Legacy Trio
-    sentry: { y: 465, w: 95, h: 95, frames: 6 },    // Row 3: Magma Sentry
-    boss:  { y: 625, w: 125, h: 100, frames: 4 },   // Row 4: Dreadbloon
-    boom:  { y: 805, w: 95, h: 95, frames: 5 }      // Row 5: Explosion
-};
-
-let player = { x: 150, y: 0, frame: 0, heat: 0 };
-let boss = { x: 120, y: -150, hp: 1000, active: true };
-
-function update() {
-    if (gameState !== "PLAYING") return;
-
-    frameCount++;
-    if (frameCount % 10 === 0) player.frame = (player.frame + 1) % sprites.devil.frames;
-
-    // Movement & Heat
-    if (player.heat < 100) player.heat += 0.05;
-    
-    // Boss entry
-    if (boss.y < 100) boss.y += 1;
-
-    document.getElementById('goldDisp').innerText = gold;
-    document.getElementById('heatDisp').innerText = Math.floor(player.heat);
-}
-
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (gameState === "START") {
-        ctx.fillStyle = "white";
-        ctx.textAlign = "center";
-        ctx.fillText("ASSETS LOADING...", canvas.width/2, canvas.height/2);
-    }
-
-    // Draw Monkey Devil (Slicing Row 1)
-    ctx.drawImage(
-        spriteSheet,
-        player.frame * 96, sprites.devil.y, 85, 85,
-        player.x, player.y, 100, 100
-    );
-
-    // Draw Dreadbloon (Slicing Row 4)
-    if (boss.active) {
-        let bossFrame = Math.floor(frameCount / 15) % sprites.boss.frames;
-        ctx.drawImage(
-            spriteSheet,
-            bossFrame * 128, sprites.boss.y, 120, 100,
-            boss.x, boss.y, 180, 150
-        );
-    }
-}
-// --- Game Objects ---
-let towers = []; // Store placed monkeys
-let selectedTower = null; // The one being dragged
+// --- Game Logic Variables ---
 let gold = 500;
+let heat = 0;
+let frameCount = 0;
+let towers = [];
+let enemies = [];
+let selectedTower = null;
+let isPlacementValid = true;
 
-const shopIcons = [
-    { type: 'devil',  cost: 200, sx: 5,   sy: 50,  sw: 95, sh: 85 },
-    { type: 'dart',   cost: 50,  sx: 5,   sy: 200, sw: 75, sh: 85 },
-    { type: 'ice',    cost: 150, sx: 290, sy: 200, sw: 75, sh: 85 }
+// --- Level Path ---
+const path = [
+    {x: -50, y: 200}, {x: 250, y: 200}, 
+    {x: 250, y: 500}, {x: 600, y: 500}
 ];
 
-// --- Touch Interaction ---
-window.addEventListener('touchstart', (e) => {
+// --- Sprite Slicing Map ---
+const sprites = {
+    devil: { sx: 5, sy: 50, sw: 95, sh: 85, frames: 6, cost: 250, range: 150 },
+    dart:  { sx: 5, sy: 200, sw: 75, sh: 85, frames: 4, cost: 50, range: 100 },
+    ice:   { sx: 290, sy: 200, sw: 75, sh: 85, frames: 4, cost: 150, range: 80 }
+};
+
+const shopItems = [
+    { ...sprites.devil, type: 'devil' },
+    { ...sprites.dart, type: 'dart' },
+    { ...sprites.ice, type: 'ice' }
+];
+
+// --- Physics & Collision ---
+function distToSegment(p, v, w) {
+    let l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
+    if (l2 == 0) return Math.distance(p, v);
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.sqrt(Math.pow(p.x - (v.x + t * (w.x - v.x)), 2) + Math.pow(p.y - (v.y + t * (w.y - v.y)), 2));
+}
+
+function checkPlacement(x, y) {
+    for (let i = 0; i < path.length - 1; i++) {
+        if (distToSegment({x, y}, path[i], path[i+1]) < 45) return false;
+    }
+    return y < canvas.height - 110;
+}
+
+// --- Input Handling ---
+canvas.addEventListener('touchstart', (e) => {
     const touch = e.touches[0];
     const tx = touch.clientX;
     const ty = touch.clientY;
 
-    // Check if touching the Shop Bar (Bottom of screen)
     if (ty > canvas.height - 100) {
         let index = Math.floor(tx / (canvas.width / 3));
-        if (shopIcons[index] && gold >= shopIcons[index].cost) {
-            selectedTower = { ...shopIcons[index], x: tx, y: ty, isDragging: true };
+        if (shopItems[index] && gold >= shopItems[index].cost) {
+            selectedTower = { ...shopItems[index], x: tx - 40, y: ty - 40 };
         }
     }
-}, { passive: false });
+}, {passive: false});
 
-window.addEventListener('touchmove', (e) => {
+canvas.addEventListener('touchmove', (e) => {
     if (selectedTower) {
         selectedTower.x = e.touches[0].clientX - 40;
         selectedTower.y = e.touches[0].clientY - 40;
+        isPlacementValid = checkPlacement(selectedTower.x + 40, selectedTower.y + 40);
     }
-}, { passive: false });
+}, {passive: false});
 
-window.addEventListener('touchend', () => {
-    if (selectedTower) {
+canvas.addEventListener('touchend', () => {
+    if (selectedTower && isPlacementValid) {
         gold -= selectedTower.cost;
-        towers.push({ ...selectedTower, isDragging: false });
-        selectedTower = null;
+        towers.push({ ...selectedTower });
     }
+    selectedTower = null;
 });
 
-// --- Updated Draw Loop ---
+// --- Core Loop Functions ---
+function update() {
+    frameCount++;
+    if (frameCount % 60 === 0) spawnEnemy();
+    
+    enemies.forEach((en, i) => {
+        let target = path[en.pIdx + 1];
+        if (!target) { enemies.splice(i, 1); heat += 2; return; }
+        let dx = target.x - en.x;
+        let dy = target.y - en.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 5) en.pIdx++;
+        else { en.x += (dx/dist) * 2; en.y += (dy/dist) * 2; }
+    });
+
+    document.getElementById('goldDisp').innerText = gold;
+    document.getElementById('heatDisp').innerText = Math.floor(heat);
+}
+
+function spawnEnemy() {
+    enemies.push({ x: path[0].x, y: path[0].y, pIdx: 0 });
+}
+
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Draw Placed Towers
+    // Draw Terrain Path
+    ctx.strokeStyle = "#3d2b1f";
+    ctx.lineWidth = 50;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    path.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+
+    // Draw Towers
     towers.forEach(t => {
-        ctx.drawImage(spriteSheet, t.sx, t.sy, t.sw, t.sh, t.x, t.y, 80, 80);
+        let frame = Math.floor(frameCount / 10) % t.frames;
+        ctx.drawImage(spriteSheet, t.sx + (frame * 96), t.sy, t.sw, t.sh, t.x, t.y, 80, 80);
     });
 
-    // 2. Draw Currently Dragged Tower
+    // Draw Enemies (Bloons)
+    enemies.forEach(en => {
+        ctx.drawImage(spriteSheet, 0, 625, 120, 100, en.x - 40, en.y - 40, 80, 70);
+    });
+
+    // Dragging Logic
     if (selectedTower) {
-        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.arc(selectedTower.x + 40, selectedTower.y + 40, selectedTower.range, 0, Math.PI*2);
+        ctx.fillStyle = isPlacementValid ? "rgba(0,255,0,0.2)" : "rgba(255,0,0,0.3)";
+        ctx.fill();
         ctx.drawImage(spriteSheet, selectedTower.sx, selectedTower.sy, selectedTower.sw, selectedTower.sh, selectedTower.x, selectedTower.y, 80, 80);
-        ctx.globalAlpha = 1.0;
     }
 
-    // 3. Draw Shop UI Bar
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    // Shop UI
+    ctx.fillStyle = "rgba(0,0,0,0.8)";
     ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
-    
-    shopIcons.forEach((icon, i) => {
-        let sectionWidth = canvas.width / 3;
-        ctx.drawImage(spriteSheet, icon.sx, icon.sy, icon.sw, icon.sh, (i * sectionWidth) + 20, canvas.height - 90, 60, 60);
+    shopItems.forEach((item, i) => {
+        let x = i * (canvas.width / 3) + 20;
+        ctx.drawImage(spriteSheet, item.sx, item.sy, item.sw, item.sh, x, canvas.height - 90, 60, 60);
         ctx.fillStyle = "white";
-        ctx.font = "14px Arial";
-        ctx.fillText("$" + icon.cost, (i * sectionWidth) + 30, canvas.height - 10);
+        ctx.fillText(`$${item.cost}`, x + 15, canvas.height - 10);
     });
 }
-    
-function gameLoop() {
-    update();
-    draw();
-    requestAnimationFrame(gameLoop);
-}
 
-// Mobile Resize
-function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    player.y = canvas.height - 150;
-    player.x = canvas.width / 2 - 50;
-    boss.x = canvas.width / 2 - 90;
-}
-
-// Input to start
-window.addEventListener('touchstart', () => {
-    if (gameState === "START") {
-        gameState = "PLAYING";
-        document.getElementById('msg').style.display = 'none';
-    }
-});
+function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 
 window.addEventListener('resize', resize);
 spriteSheet.onload = () => { resize(); gameLoop(); };
-
-// Fallback if image fails
-spriteSheet.onerror = () => {
-    alert("Image not found! Make sure it's named v10_volcano_master_atlas.png");
-};
 </script>
 </body>
 </html>
