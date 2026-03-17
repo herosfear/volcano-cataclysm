@@ -94,11 +94,12 @@ canvas.addEventListener('touchstart', (e) => {
 
 canvas.addEventListener('touchmove', (e) => {
     if (selectedTower) {
+        e.preventDefault(); // CRITICAL: Stops the page from moving
         selectedTower.x = e.touches[0].clientX - 40;
         selectedTower.y = e.touches[0].clientY - 40;
         isPlacementValid = checkPlacement(selectedTower.x + 40, selectedTower.y + 40);
     }
-}, {passive: false});
+}, {passive: false}); // 'passive: false' allows preventDefault to work
 
 canvas.addEventListener('touchend', () => {
     if (selectedTower && isPlacementValid) {
