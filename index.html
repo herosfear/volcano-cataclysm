@@ -38,3 +38,137 @@ let selectedTower = null;
 let frameCount = 0;
 
 const path = [{x: -50, y: 250}, {x: 200, y: 250}, {x: 200, y: 500}, {x: 600, y: 500}];
+
+const shopItems = [
+    { type: 'devil', sx: 5, sy: 50, sw: 95, sh: 85, cost: 250, range: 140 },
+    { type: 'dart',  sx: 5, sy: 200, sw: 75, sh: 85, cost: 50, range: 100 },
+    { type: 'ice',   sx: 290, sy: 200, sw: 75, sh: 85, cost: 150, range: 90 }
+];
+
+function log(msg) { debugDisp.innerText = "DEBUG: " + msg; }
+
+// --- Touch Handling ---
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const tx = touch.clientX;
+    const ty = touch.clientY;
+
+    if (!gameActive) {
+        gameActive = true;
+        log("ENGINE ACTIVE");
+        return;
+    }
+
+    if (ty > window.innerHeight - 100) {
+        let index = Math.floor(tx / (window.innerWidth / 3));
+        if (shopItems[index] && gold >= shopItems[index].cost) {
+            selectedTower = { ...shopItems[index], x: tx - 40, y: ty - 40 };
+            log(`Grabbed ${selectedTower.type}`);
+        } else {
+            log("Need more gold!");
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+    if (selectedTower) {
+        e.preventDefault();
+        selectedTower.x = e.touches[0].clientX - 40;
+        selectedTower.y = e.touches[0].clientY - 40;
+        log(`XY: ${Math.round(selectedTower.x)}, ${Math.round(selectedTower.y)}`);
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => {
+    if (selectedTower) {
+        gold -= selectedTower.cost;
+        towers.push({ ...selectedTower });
+        log(`Placed! Gold: ${gold}`);
+    }
+    selectedTower = null;
+}, { passive: false });
+
+// --- Game Loop Logic ---
+function update() {
+    if (!gameActive) return;
+
+    frameCount++;
+    // Spawn enemy every 2 seconds
+    if (frameCount % 120 === 0) enemies.push({ x: path[0].x, y: path[0].y, pIdx: 0 });
+
+    enemies.forEach((en, i) => {
+        let target = path[en.pIdx + 1];
+        if (!target) { 
+            enemies.splice(i, 1); 
+            heat = Math.min(100, heat + 5); 
+            return; 
+        }
+        let dx = target.x - en.x;
+        let dy = target.y - en.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 5) en.pIdx++;
+        else { 
+            en.x += (dx/dist) * 2.5; 
+            en.y += (dy/dist) * 2.5; 
+        }
+    });
+
+    document.getElementById('goldDisp').innerText = gold;
+    document.getElementById('heatDisp').innerText = Math.floor(heat);
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 1. Terrain Path
+    ctx.strokeStyle = "#3a2a1d"; ctx.lineWidth = 60; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y);
+    path.forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
+
+    // 2. Placed Towers
+    towers.forEach(t => ctx.drawImage(spriteSheet, t.sx, t.sy, t.sw, t.sh, t.x, t.y, 80, 80));
+
+    // 3. Moving Enemies
+    enemies.forEach(en => {
+        // Slicing the enemy from the boss/devil row for now
+        ctx.drawImage(spriteSheet, 0, 625, 120, 100, en.x - 35, en.y - 35, 70, 70);
+    });
+
+    // 4. Ghost & Range
+    if (selectedTower) {
+        ctx.beginPath();
+        ctx.arc(selectedTower.x + 40, selectedTower.y + 40, selectedTower.range, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(0, 255, 0, 0.15)"; ctx.fill();
+        ctx.strokeStyle = "rgba(0, 255, 0, 0.5)"; ctx.stroke();
+        ctx.drawImage(spriteSheet, selectedTower.sx, selectedTower.sy, selectedTower.sw, selectedTower.sh, selectedTower.x, selectedTower.y, 80, 80);
+    }
+
+    // 5. Shop Bar
+    ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+    shopItems.forEach((item, i) => {
+        let slotX = i * (canvas.width / 3) + (canvas.width / 6) - 30;
+        ctx.drawImage(spriteSheet, item.sx, item.sy, item.sw, item.sh, slotX, canvas.height - 90, 60, 60);
+    });
+
+    if (!gameActive) {
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(0,0, canvas.width, canvas.height);
+        ctx.fillStyle = "orange"; ctx.textAlign = "center"; ctx.font = "20px monospace";
+        ctx.fillText("TAP TO START DEFENSE", canvas.width/2, canvas.height/2);
+    }
+}
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+
+function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+
+window.addEventListener('resize', resize);
+spriteSheet.onload = () => { resize(); gameLoop(); log("READY"); };
+</script>
+</body>
+</html>
