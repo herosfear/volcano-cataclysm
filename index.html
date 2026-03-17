@@ -2,78 +2,74 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Volcano Cataclysm V10</title>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1116; font-family: monospace; }
-        #gameCanvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: block; z-index: 1; touch-action: none; }
-        #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 10; color: white; pointer-events: none; text-shadow: 2px 2px #000; }
-        #debug-bar { color: #00ff00; font-size: 14px; background: rgba(0,0,0,0.5); padding: 5px; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1116; font-family: 'Courier New', Courier, monospace; }
+        #gameCanvas { 
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
+            display: block; z-index: 1; touch-action: none; 
+            image-rendering: -webkit-optimize-contrast; image-rendering: pixelated;
+        }
+        #ui-layer { position: absolute; top: 20px; left: 20px; z-index: 10; color: #fff; pointer-events: none; text-shadow: 2px 2px #000; }
+        .stat { font-size: 22px; font-weight: bold; margin-bottom: 5px; }
+        #debug-bar { color: #00ff00; font-size: 12px; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 4px; border: 1px solid #333; }
     </style>
 </head>
 <body>
     <div id="ui-layer">
-        <div style="font-size: 20px;">Gold: <span id="goldDisp">500</span></div>
-        <div id="debug-bar">STATUS: Checking Files...</div>
+        <div class="stat">GOLD: <span id="goldDisp">500</span></div>
+        <div class="stat" style="color: #ff4500;">HEAT: <span id="heatDisp">0</span>%</div>
+        <div id="debug-bar">SYSTEM: STANDBY...</div>
     </div>
     <canvas id="gameCanvas"></canvas>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: false }); // Optimization: no alpha for the main canvas background
 const debugDisp = document.getElementById('debug-bar');
 
 const spriteSheet = new Image();
-// V10 FILENAME CHECK: Ensure this matches your GitHub file EXACTLY (case-sensitive)
 spriteSheet.src = 'v10_volcano_master_atlas.PNG'; 
 
 let gold = 500;
-let gameActive = false; 
+let heat = 0;
+let gameActive = false;
 let towers = [];
 let enemies = [];
+let projectiles = [];
 let selectedTower = null;
-let imgLoaded = false;
 
-const path = [{x: -50, y: 250}, {x: 200, y: 250}, {x: 200, y: 500}, {x: 600, y: 500}];
+// Delta Time & Loop Optimization
+let lastTime = performance.now();
+let accumulator = 0;
+const deltaTime = 1 / 60; // Target 60fps logic
+let spawnTimer = 0;
+
+const path = [{x: -50, y: 250}, {x: 250, y: 250}, {x: 250, y: 550}, {x: 650, y: 550}];
 
 const shopItems = [
-    { type: 'Devil', sx: 5, sy: 50, sw: 95, sh: 85, cost: 250, color: 'red' },
-    { type: 'Dart',  sx: 5, sy: 200, sw: 75, sh: 85, cost: 50, color: 'blue' },
-    { type: 'Ice',   sx: 290, sy: 200, sw: 75, sh: 85, cost: 150, color: 'cyan' }
+    { type: 'Devil', sx: 5, sy: 5, sw: 90, sh: 90, cost: 250, range: 180, fireRate: 0.6 },
+    { type: 'Dart',  sx: 5, sy: 105, sw: 90, sh: 90, cost: 50, range: 140, fireRate: 0.4 },
+    { type: 'Ice',   sx: 105, sy: 105, sw: 90, sh: 90, cost: 150, range: 110, fireRate: 1.0 }
 ];
 
-function log(msg) { debugDisp.innerText = "STATUS: " + msg; }
+function log(msg) { debugDisp.innerText = "LOG: " + msg; }
 
-// --- Safety Timeout ---
-setTimeout(() => {
-    if (!imgLoaded) {
-        log("IMAGE TIMEOUT - Using placeholder blocks");
-        startEngine();
-    }
-}, 4000);
-
-function startEngine() {
-    resize();
-    gameLoop();
-}
-
-// --- Input Handling ---
+// --- Improved Touch Controls ---
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    const tx = e.touches[0].clientX;
-    const ty = e.touches[0].clientY;
+    const touch = e.touches[0];
+    const tx = touch.clientX;
+    const ty = touch.clientY;
 
-    if (!gameActive) {
-        gameActive = true;
-        log("BATTLE STARTED");
-        return;
-    }
+    if (!gameActive) { gameActive = true; log("VOLCANO ACTIVE"); return; }
 
-    if (ty > window.innerHeight - 100) {
+    if (ty > window.innerHeight - 120) {
         let index = Math.floor(tx / (window.innerWidth / 3));
         if (shopItems[index] && gold >= shopItems[index].cost) {
-            selectedTower = { ...shopItems[index], x: tx - 40, y: ty - 40 };
-            log(`Holding ${selectedTower.type}`);
+            selectedTower = { ...shopItems[index], x: tx - 45, y: ty - 45, lastFired: 0 };
+            log(`ARMING: ${selectedTower.type.toUpperCase()}`);
         }
     }
 }, { passive: false });
@@ -81,63 +77,159 @@ canvas.addEventListener('touchstart', (e) => {
 canvas.addEventListener('touchmove', (e) => {
     if (selectedTower) {
         e.preventDefault();
-        selectedTower.x = e.touches[0].clientX - 40;
-        selectedTower.y = e.touches[0].clientY - 40;
+        selectedTower.x = e.touches[0].clientX - 45;
+        selectedTower.y = e.touches[0].clientY - 45;
     }
 }, { passive: false });
 
 canvas.addEventListener('touchend', () => {
     if (selectedTower) {
         gold -= selectedTower.cost;
-        towers.push({ ...selectedTower });
-        log(`Placed! Gold: ${gold}`);
+        towers.push({ ...selectedTower, id: Date.now() });
+        log("TOWER DEPLOYED");
     }
     selectedTower = null;
 }, { passive: false });
 
+// --- Core Logic (Task 1 & 2) ---
+function updateLogic(dt) {
+    if (!gameActive) return;
+
+    spawnTimer += dt;
+    if (spawnTimer > 1.8) { 
+        enemies.push({ x: path[0].x, y: path[0].y, pIdx: 0, speed: 110, id: Math.random() });
+        spawnTimer = 0;
+    }
+
+    towers.forEach(t => {
+        t.lastFired += dt;
+        if (t.lastFired >= t.fireRate) {
+            // Find first enemy in range
+            let target = enemies.find(en => Math.hypot((t.x + 45) - en.x, (t.y + 45) - en.y) < t.range);
+            if (target) {
+                projectiles.push({ x: t.x + 45, y: t.y + 45, targetId: target.id, speed: 350 });
+                t.lastFired = 0;
+            }
+        }
+    });
+
+    // Projectiles
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        let p = projectiles[i];
+        let target = enemies.find(e => e.id === p.targetId);
+        
+        if (!target) { projectiles.splice(i, 1); continue; }
+
+        let dx = target.x - p.x;
+        let dy = target.y - p.y;
+        let dist = Math.hypot(dx, dy);
+
+        if (dist < 15) {
+            enemies.splice(enemies.indexOf(target), 1);
+            projectiles.splice(i, 1);
+            gold += 20;
+        } else {
+            p.x += (dx / dist) * p.speed * dt;
+            p.y += (dy / dist) * p.speed * dt;
+        }
+    }
+
+    // Enemies
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        let en = enemies[i];
+        let targetNode = path[en.pIdx + 1];
+        if (!targetNode) { 
+            enemies.splice(i, 1); 
+            heat += 10; 
+            continue; 
+        }
+        let dx = targetNode.x - en.x;
+        let dy = targetNode.y - en.y;
+        let d = Math.hypot(dx, dy);
+        if (d < 5) en.pIdx++;
+        else {
+            en.x += (dx / d) * en.speed * dt;
+            en.y += (dy / d) * en.speed * dt;
+        }
+    }
+}
+
 function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Task 3: Background fill ensures no flickering/trails
+    ctx.fillStyle = "#0b1116";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // 1. Path
-    ctx.strokeStyle = "#3a2a1d"; ctx.lineWidth = 50; ctx.lineCap = "round";
+    // Road
+    ctx.strokeStyle = "#2a1a0d"; ctx.lineWidth = 60; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y);
     path.forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
 
-    // 2. Towers
+    // Towers
     towers.forEach(t => {
-        if (imgLoaded) ctx.drawImage(spriteSheet, t.sx, t.sy, t.sw, t.sh, t.x, t.y, 80, 80);
-        else { ctx.fillStyle = t.color; ctx.fillRect(t.x, t.y, 60, 60); }
+        let frameX = (Math.floor(Date.now() / 150) % 4) * 100; 
+        ctx.drawImage(spriteSheet, t.sx + frameX, t.sy, t.sw, t.sh, t.x, t.y, 90, 90);
     });
 
-    // 3. Ghost
-    if (selectedTower) {
-        ctx.globalAlpha = 0.5;
-        if (imgLoaded) ctx.drawImage(spriteSheet, selectedTower.sx, selectedTower.sy, selectedTower.sw, selectedTower.sh, selectedTower.x, selectedTower.y, 80, 80);
-        else { ctx.fillStyle = selectedTower.color; ctx.fillRect(selectedTower.x, selectedTower.y, 60, 60); }
-        ctx.globalAlpha = 1.0;
-    }
+    // Enemies
+    enemies.forEach(en => {
+        ctx.drawImage(spriteSheet, 0, 600, 100, 100, en.x - 40, en.y - 40, 80, 80);
+    });
 
-    // 4. Shop
-    ctx.fillStyle = "rgba(0,0,0,0.9)";
-    ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+    // Bullets
+    ctx.fillStyle = "#ffcc00";
+    projectiles.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill(); });
+
+    // UI
+    ctx.fillStyle = "rgba(10, 15, 20, 0.9)";
+    ctx.fillRect(0, canvas.height - 110, canvas.width, 110);
     shopItems.forEach((item, i) => {
-        let x = i * (canvas.width / 3) + 20;
-        if (imgLoaded) ctx.drawImage(spriteSheet, item.sx, item.sy, item.sw, item.sh, x, canvas.height - 90, 60, 60);
-        else { ctx.fillStyle = item.color; ctx.fillRect(x, canvas.height - 80, 40, 40); }
+        let xPos = i * (canvas.width / 3) + (canvas.width / 6) - 35;
+        ctx.drawImage(spriteSheet, item.sx, item.sy, item.sw, item.sh, xPos, canvas.height - 100, 70, 70);
     });
+
+    if (selectedTower) {
+        ctx.beginPath(); ctx.arc(selectedTower.x + 45, selectedTower.y + 45, selectedTower.range, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(0, 255, 100, 0.15)"; ctx.fill();
+        ctx.drawImage(spriteSheet, selectedTower.sx, selectedTower.sy, selectedTower.sw, selectedTower.sh, selectedTower.x, selectedTower.y, 90, 90);
+    }
 
     if (!gameActive) {
-        ctx.fillStyle = "orange"; ctx.textAlign = "center"; ctx.font = "20px Arial";
-        ctx.fillText("TAP TO START", canvas.width/2, canvas.height/2);
+        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = "#ffae00"; ctx.textAlign = "center"; ctx.font = "bold 22px Courier";
+        ctx.fillText("READY TO DEFEND?", canvas.width/2, canvas.height/2 - 20);
+        ctx.font = "14px Courier"; ctx.fillText("[ TAP TO START ]", canvas.width/2, canvas.height/2 + 20);
     }
+
     document.getElementById('goldDisp').innerText = gold;
+    document.getElementById('heatDisp').innerText = Math.floor(heat);
 }
 
-function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-function gameLoop() { draw(); requestAnimationFrame(gameLoop); }
+function gameLoop(now) {
+    let frameTime = (now - lastTime) / 1000;
+    if (frameTime > 0.25) frameTime = 0.25; // Spiral of death protection
+    lastTime = now;
+    accumulator += frameTime;
 
-spriteSheet.onload = () => { imgLoaded = true; log("ASSETS LOADED"); startEngine(); };
-spriteSheet.onerror = () => { log("FILE ERROR: Check filename Case"); };
+    while (accumulator >= deltaTime) {
+        updateLogic(deltaTime);
+        accumulator -= deltaTime;
+    }
+    
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+function resize() { 
+    canvas.width = window.innerWidth; 
+    canvas.height = window.innerHeight; 
+}
+
+window.addEventListener('resize', resize);
+spriteSheet.onload = () => { 
+    resize(); 
+    requestAnimationFrame(gameLoop); 
+    log("SYSTEMS ONLINE"); 
+};
 </script>
 </body>
 </html>
