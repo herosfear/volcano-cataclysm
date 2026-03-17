@@ -70,37 +70,55 @@ function checkPlacement(x, y) {
     return y < canvas.height - 110;
 }
 
-// --- Fixed Input Handling ---
-canvas.addEventListener('touchstart', (e) => {
-    // 1. Force the game to start if it hasn't yet
-    if (gameState === "START") {
-        gameState = "PLAYING";
-        document.getElementById('msg').style.display = 'none';
-        return; // Stop here so we don't accidentally buy a tower on the first tap
-    }
+// --- Fixed Input Handling for iPhone ---
 
+// 1. TOUCH START
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault(); // Stop Safari from scrolling
     const touch = e.touches[0];
     const tx = touch.clientX;
     const ty = touch.clientY;
 
-    // 2. Shop Interaction
+    // First tap starts the game
+    if (gameState === "START") {
+        gameState = "PLAYING";
+        document.getElementById('msg').style.display = 'none';
+        return;
+    }
+
+    // Check if touching Shop (Bottom 100px)
     if (ty > canvas.height - 100) {
         let index = Math.floor(tx / (canvas.width / 3));
         if (shopItems[index] && gold >= shopItems[index].cost) {
+            // Create the tower at the touch point
             selectedTower = { ...shopItems[index], x: tx - 40, y: ty - 40 };
         }
     }
-}, {passive: false});
+}, { passive: false });
 
+// 2. TOUCH MOVE
 canvas.addEventListener('touchmove', (e) => {
     if (selectedTower) {
-        e.preventDefault(); // CRITICAL: Stops the page from moving
+        e.preventDefault(); // Stop the screen from wobbling
         selectedTower.x = e.touches[0].clientX - 40;
         selectedTower.y = e.touches[0].clientY - 40;
+        
+        // Update placement validity
         isPlacementValid = checkPlacement(selectedTower.x + 40, selectedTower.y + 40);
     }
-}, {passive: false}); // 'passive: false' allows preventDefault to work
+}, { passive: false });
 
+// 3. TOUCH END
+canvas.addEventListener('touchend', (e) => {
+    // No preventDefault here so the phone can register the "lift"
+    if (selectedTower) {
+        if (isPlacementValid) {
+            gold -= selectedTower.cost;
+            towers.push({ ...selectedTower });
+        }
+        selectedTower = null;
+    }
+}, { passive: false });
 canvas.addEventListener('touchend', () => {
     if (selectedTower && isPlacementValid) {
         gold -= selectedTower.cost;
