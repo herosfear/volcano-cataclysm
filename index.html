@@ -5,38 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Volcano Cataclysm V10</title>
     <style>
-        /* This CSS ensures the game fills your iPhone screen perfectly */
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1116; }
-        
-        #gameCanvas {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            display: block;
-            z-index: 1;
-            touch-action: none; /* Stops Safari from scrolling */
-        }
-
-        #ui-layer {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            z-index: 10;
-            color: white;
-            font-family: monospace;
-            pointer-events: none; /* Let touches pass through to the game */
-        }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1116; font-family: monospace; }
+        #gameCanvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: block; z-index: 1; touch-action: none; }
+        #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 10; color: white; pointer-events: none; text-shadow: 2px 2px #000; }
+        .stat { font-size: 18px; margin-bottom: 4px; }
+        #debug-bar { color: #00ff00; font-size: 12px; }
     </style>
 </head>
 <body>
     <div id="ui-layer">
-        Gold: <span id="goldDisp">500</span> | Heat: <span id="heatDisp">0</span>%<br>
-        <span id="debug-bar" style="color: #00ff00;">DEBUG: System Ready</span>
+        <div class="stat">Gold: <span id="goldDisp">500</span></div>
+        <div class="stat" style="color: #ff4500;">Heat: <span id="heatDisp">0</span>%</div>
+        <div id="debug-bar">DEBUG: Assets Loading...</div>
     </div>
     <canvas id="gameCanvas"></canvas>
 
+<script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const debugDisp = document.getElementById('debug-bar');
@@ -44,204 +28,13 @@ const debugDisp = document.getElementById('debug-bar');
 const spriteSheet = new Image();
 spriteSheet.src = 'v10_volcano_master_atlas.PNG'; 
 
-// --- Unified Game State ---
+// --- Game Logic ---
 let gold = 500;
 let heat = 0;
-let gameActive = false; // The single "on/off" switch
+let gameActive = false; 
 let towers = [];
 let enemies = [];
 let selectedTower = null;
 let frameCount = 0;
 
-const path = [{x: -50, y: 200}, {x: 250, y: 200}, {x: 250, y: 500}, {x: 600, y: 500}];
-
-const shopItems = [
-    { type: 'devil', sx: 5, sy: 50, sw: 95, sh: 85, cost: 250, range: 150 },
-    { type: 'dart',  sx: 5, sy: 200, sw: 75, sh: 85, cost: 50, range: 100 },
-    { type: 'ice',   sx: 290, sy: 200, sw: 75, sh: 85, cost: 150, range: 80 }
-];
-
-function log(msg) { debugDisp.innerText = "DEBUG: " + msg; }
-
-// --- Input Logic ---
-canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const tx = touch.clientX;
-    const ty = touch.clientY;
-
-    log(`Touch: ${Math.round(tx)}, ${Math.round(ty)}`);
-
-    if (!gameActive) {
-        gameActive = true;
-        log("ENGINE STARTED");
-        return;
-    }
-
-    if (ty > window.innerHeight - 100) {
-        let index = Math.floor(tx / (window.innerWidth / 3));
-        if (shopItems[index] && gold >= shopItems[index].cost) {
-            selectedTower = { ...shopItems[index], x: tx - 40, y: ty - 40 };
-        }
-    }
-}, { passive: false });
-
-canvas.addEventListener('touchmove', (e) => {
-    if (selectedTower) {
-        e.preventDefault();
-        selectedTower.x = e.touches[0].clientX - 40;
-        selectedTower.y = e.touches[0].clientY - 40;
-    }
-}, { passive: false });
-
-canvas.addEventListener('touchend', () => {
-    if (selectedTower) {
-        gold -= selectedTower.cost; // Gold is now subtracted here
-        towers.push({ ...selectedTower });
-        log(`Placed! Gold: ${gold}`);
-    }
-    selectedTower = null;
-}, { passive: false });
-
-// --- Game Engine Updates ---
-function update() {
-    if (!gameActive) return;
-
-    frameCount++;
-    if (frameCount % 100 === 0) enemies.push({ x: path[0].x, y: path[0].y, pIdx: 0 });
-
-    enemies.forEach((en, i) => {
-        let target = path[en.pIdx + 1];
-        if (!target) { enemies.splice(i, 1); heat += 2; return; }
-        let dx = target.x - en.x;
-        let dy = target.y - en.y;
-        let dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < 5) en.pIdx++;
-        else { en.x += (dx/dist) * 2; en.y += (dy/dist) * 2; }
-    });
-
-    document.getElementById('goldDisp').innerText = gold;
-    document.getElementById('heatDisp').innerText = Math.floor(heat);
-}
-
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw Volcanic Path
-    ctx.strokeStyle = "#443322"; ctx.lineWidth = 50; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y);
-    path.forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
-
-    // Draw Towers
-    towers.forEach(t => ctx.drawImage(spriteSheet, t.sx, t.sy, t.sw, t.sh, t.x, t.y, 80, 80));
-
-    // Draw Enemies
-    enemies.forEach(en => ctx.drawImage(spriteSheet, 0, 625, 120, 100, en.x - 40, en.y - 40, 70, 60));
-
-    // Ghost Tower / Range
-    if (selectedTower) {
-        ctx.beginPath();
-        ctx.arc(selectedTower.x + 40, selectedTower.y + 40, selectedTower.range, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(0,255,0,0.2)"; ctx.fill();
-        ctx.drawImage(spriteSheet, selectedTower.sx, selectedTower.sy, selectedTower.sw, selectedTower.sh, selectedTower.x, selectedTower.y, 80, 80);
-    }
-
-    // Shop
-    ctx.fillStyle = "rgba(0,0,0,0.8)";
-    ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
-    shopItems.forEach((item, i) => {
-        ctx.drawImage(spriteSheet, item.sx, item.sy, item.sw, item.sh, i * (canvas.width/3) + 20, canvas.height - 90, 60, 60);
-    });
-}
-
-function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-
-function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
-
-window.addEventListener('resize', resize);
-spriteSheet.onload = () => { resize(); gameLoop(); log("READY - TAP TO START"); };
-
-function log(msg) { debugDisp.innerText = "DEBUG: " + msg; }
-
-// --- REPAIRED INPUT LOGIC ---
-canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const tx = touch.clientX;
-    const ty = touch.clientY;
-
-    log(`Touch: ${Math.round(tx)}, ${Math.round(ty)}`);
-
-    if (gameState === "START") {
-        gameState = "PLAYING";
-        return;
-    }
-
-    // Shop Logic (Bottom 100px)
-    if (ty > window.innerHeight - 100) {
-        let index = Math.floor(tx / (window.innerWidth / 3));
-        if (shopItems[index] && gold >= shopItems[index].cost) {
-            selectedTower = { ...shopItems[index], x: tx - 40, y: ty - 40 };
-            log(`Grabbed ${selectedTower.type}`);
-        }
-    }
-}, { passive: false });
-
-canvas.addEventListener('touchmove', (e) => {
-    if (selectedTower) {
-        e.preventDefault();
-        selectedTower.x = e.touches[0].clientX - 40;
-        selectedTower.y = e.touches[0].clientY - 40;
-    }
-}, { passive: false });
-
-canvas.addEventListener('touchend', () => {
-    if (selectedTower) {
-        towers.push({ ...selectedTower });
-        gold -= selectedTower.cost;
-        log("Placed Tower");
-    }
-    selectedTower = null;
-}, { passive: false });
-
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Background
-    ctx.fillStyle = "#1a2a3a";
-    ctx.fillRect(0,0, canvas.width, canvas.height);
-
-    // Towers
-    towers.forEach(t => ctx.drawImage(spriteSheet, t.sx, t.sy, t.sw, t.sh, t.x, t.y, 80, 80));
-
-    // Ghost
-    if (selectedTower) {
-        ctx.globalAlpha = 0.5;
-        ctx.drawImage(spriteSheet, selectedTower.sx, selectedTower.sy, selectedTower.sw, selectedTower.sh, selectedTower.x, selectedTower.y, 80, 80);
-        ctx.globalAlpha = 1.0;
-    }
-
-    // Shop
-    ctx.fillStyle = "rgba(0,0,0,0.8)";
-    ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
-    shopItems.forEach((item, i) => {
-        ctx.drawImage(spriteSheet, item.sx, item.sy, item.sw, item.sh, i * (canvas.width/3) + 20, canvas.height - 90, 60, 60);
-    });
-}
-
-function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-
-window.addEventListener('resize', resize);
-function gameLoop() { draw(); requestAnimationFrame(gameLoop); }
-
-spriteSheet.onload = () => { resize(); gameLoop(); log("Assets OK - Tap to Play"); };
-spriteSheet.onerror = () => { log("ERROR: Sprite Not Found"); };
-</script>
-</body>
-</html>
+const path = [{x: -50, y: 250}, {x: 200, y: 250}, {x: 200, y: 500}, {x: 600, y: 500}];
