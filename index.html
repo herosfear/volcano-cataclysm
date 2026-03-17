@@ -4,11 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Volcano Cataclysm V10</title>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Volcano Cataclysm V10</title>
+    
     <style>
-        body { margin: 0; background: #0b1116; color: white; font-family: monospace; overflow: hidden; touch-action: none; }
-        canvas { display: block; background: #1a2a3a; margin: 0 auto; position: relative; z-index: 1; }
-        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; z-index: 10; text-shadow: 2px 2px #000; }
-        #debug-bar { position: absolute; top: 50px; left: 10px; color: #00ff00; font-size: 12px; pointer-events: none; z-index: 10; background: rgba(0,0,0,0.5); }
+        /* This is your CSS "Page" inside your HTML */
+        #gameCanvas {
+            position: fixed; /* Laps the game over the whole screen */
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1; /* Puts the game behind the text but above the background */
+            touch-action: none; /* Stops the iPhone from scrolling the page */
+        }
+
+        #ui, #debug-bar {
+            position: relative;
+            z-index: 10; /* Ensures your Gold and Debug text stays ON TOP of the game */
+            pointer-events: none; /* Touches pass through the text to the game below */
+        }
     </style>
 </head>
 <body>
