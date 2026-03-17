@@ -9,28 +9,25 @@
         #gameCanvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: block; z-index: 1; touch-action: none; }
         #ui-layer { position: absolute; top: 20px; left: 20px; z-index: 10; color: #fff; pointer-events: none; text-shadow: 2px 2px #000; }
         .stat { font-size: 22px; font-weight: bold; margin-bottom: 5px; }
-        #debug-bar { color: #00ff00; font-size: 11px; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 4px; border: 1px solid #333; }
+        #log-box { color: #00ff00; font-size: 11px; background: rgba(0,0,0,0.8); padding: 8px; border-radius: 4px; border: 1px solid #333; width: fit-content; }
     </style>
 </head>
 <body>
     <div id="ui-layer">
         <div class="stat">GOLD: <span id="goldDisp">500</span></div>
         <div class="stat" style="color: #ff4500;">HEAT: <span id="heatDisp">0</span>%</div>
-        <div id="debug-bar">STATUS: <span id="engineStatus">READY</span></div>
+        <div id="log-box">STATUS: RUNNING</div>
     </div>
     <canvas id="gameCanvas"></canvas>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const engineLabel = document.getElementById('engineStatus');
+const logBox = document.getElementById('log-box');
 
-// --- Asset Loading ---
 const spriteSheet = new Image();
-// Adding ?v=1 forces the browser to bypass the cache and load your new transparent file
-spriteSheet.src = 'v10_volcano_master_atlas.PNG?v=1'; 
+spriteSheet.src = 'v10_volcano_master_atlas.PNG'; // Ensure this matches your file name exactly
 
-// --- Game Variables ---
 let gold = 500;
 let heat = 0;
 let gameActive = false;
@@ -44,76 +41,84 @@ const deltaTime = 1/60;
 let accumulator = 0;
 let spawnTimer = 0;
 
-// Pathing logic
-const path = [{x: -50, y: 350}, {x: 250, y: 350}, {x: 250, y: 600}, {x: 850, y: 600}];
+// The path coordinates
+const path = [{x: -50, y: 300}, {x: 230, y: 300}, {x: 230, y: 500}, {x: 850, y: 500}];
 
-// Adjusted coordinates for the transparent sheet (skipping labels)
-const shopItems = [
-    { type: 'Devil', sx: 5, sy: 55, sw: 85, sh: 85, cost: 250, range: 170, fireRate: 0.6 },
-    { type: 'Dart',  sx: 5, sy: 220, sw: 85, sh: 85, cost: 50, range: 140, fireRate: 0.4 },
-    { type: 'Ice',   sx: 320, sy: 220, sw: 85, sh: 85, cost: 150, range: 110, fireRate: 1.0 }
+// Collision zones for the path (to block tower placement)
+const pathZones = [
+    {x1: -50, y1: 260, x2: 270, y2: 340}, // Horizontal top
+    {x1: 190, y1: 260, x2: 270, y2: 540}, // Vertical
+    {x1: 190, y1: 460, x2: 850, y2: 540}  // Horizontal bottom
 ];
 
-// --- Input Logic ---
+// Tightened coordinates for your new transparent sheet
+const shopItems = [
+    { type: 'Devil', sx: 8, sy: 58, sw: 74, sh: 74, cost: 250, range: 160, fireRate: 0.6 },
+    { type: 'Dart',  sx: 8, sy: 222, sw: 70, sh: 70, cost: 50, range: 130, fireRate: 0.4 },
+    { type: 'Ice',   sx: 324, sy: 222, sw: 70, sh: 70, cost: 150, range: 110, fireRate: 1.0 }
+];
+
+function isPosOnPath(x, y) {
+    return pathZones.some(z => x >= z.x1 && x <= z.x2 && y >= z.y1 && y <= z.y2);
+}
+
+function log(msg) { logBox.innerText = "LOG: " + msg; }
+
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const tx = e.touches[0].clientX;
     const ty = e.touches[0].clientY;
-
-    if (!gameActive) { gameActive = true; engineLabel.innerText = "RUNNING"; return; }
-
-    // Shop Selection
+    if (!gameActive) { gameActive = true; return; }
     if (ty > window.innerHeight - 120) {
         let index = Math.floor(tx / (window.innerWidth / 3));
         if (shopItems[index] && gold >= shopItems[index].cost) {
-            selectedTower = { ...shopItems[index], x: tx - 45, y: ty - 45, lastFired: 0 };
+            selectedTower = { ...shopItems[index], x: tx - 40, y: ty - 40, lastFired: 0 };
         }
     }
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
     if (selectedTower) {
-        selectedTower.x = e.touches[0].clientX - 45;
-        selectedTower.y = e.touches[0].clientY - 45;
+        selectedTower.x = e.touches[0].clientX - 40;
+        selectedTower.y = e.touches[0].clientY - 40;
     }
 }, { passive: false });
 
 canvas.addEventListener('touchend', () => {
     if (selectedTower) {
-        gold -= selectedTower.cost;
-        towers.push({ ...selectedTower, id: Math.random() });
+        const cx = selectedTower.x + 40;
+        const cy = selectedTower.y + 40;
+        if (isPosOnPath(cx, cy)) {
+            log("CANNOT PLACE ON PATH!");
+        } else {
+            gold -= selectedTower.cost;
+            towers.push({ ...selectedTower, id: Math.random() });
+            log("TOWER DEPLOYED");
+        }
     }
     selectedTower = null;
 }, { passive: false });
 
-// --- Engine Logic ---
 function update(dt) {
     if (!gameActive) return;
-
     spawnTimer += dt;
     if (spawnTimer > 1.8) {
-        // Spawning Magma Mine (from Projectiles & Effects row)
-        enemies.push({ x: path[0].x, y: path[0].y, pIdx: 0, speed: 100, id: Math.random(), hp: 3 });
+        enemies.push({ x: path[0].x, y: path[0].y, pIdx: 0, speed: 90, id: Math.random(), hp: 4 });
         spawnTimer = 0;
     }
-
     towers.forEach(t => {
         t.lastFired += dt;
         if (t.lastFired >= t.fireRate) {
-            let target = enemies.find(en => Math.hypot((t.x+45)-en.x, (t.y+45)-en.y) < t.range);
+            let target = enemies.find(en => Math.hypot((t.x+40)-en.x, (t.y+40)-en.y) < t.range);
             if (target) {
-                projectiles.push({ x: t.x+45, y: t.y+45, target: target, speed: 450 });
+                projectiles.push({ x: t.x+40, y: t.y+40, target: target, speed: 450 });
                 t.lastFired = 0;
             }
         }
     });
-
-    for (let i = projectiles.length - 1; i >= 0; i--) {
-        let p = projectiles[i];
-        let dx = p.target.x - p.x;
-        let dy = p.target.y - p.y;
-        let dist = Math.hypot(dx, dy);
-        if (dist < 15) {
+    projectiles.forEach((p, i) => {
+        let dx = p.target.x - p.x, dy = p.target.y - p.y, d = Math.hypot(dx, dy);
+        if (d < 15) {
             p.target.hp--;
             projectiles.splice(i, 1);
             if (p.target.hp <= 0 && enemies.includes(p.target)) {
@@ -121,68 +126,61 @@ function update(dt) {
                 gold += 20;
             }
         } else {
-            p.x += (dx/dist) * p.speed * dt;
-            p.y += (dy/dist) * p.speed * dt;
-        }
-    }
-
-    enemies.forEach((en, i) => {
-        let node = path[en.pIdx + 1];
-        if (!node) { enemies.splice(i, 1); heat += 5; return; }
-        let d = Math.hypot(node.x - en.x, node.y - en.y);
-        if (d < 5) en.pIdx++;
-        else {
-            en.x += ((node.x - en.x)/d) * en.speed * dt;
-            en.y += ((node.y - en.y)/d) * en.speed * dt;
+            p.x += (dx/d) * p.speed * dt; p.y += (dy/d) * p.speed * dt;
         }
     });
-
+    enemies.forEach((en, i) => {
+        let node = path[en.pIdx + 1];
+        if (!node) { enemies.splice(i, 1); heat += 10; return; }
+        let d = Math.hypot(node.x - en.x, node.y - en.y);
+        if (d < 5) en.pIdx++;
+        else { en.x += ((node.x-en.x)/d)*en.speed*dt; en.y += ((node.y-en.y)/d)*en.speed*dt; }
+    });
     document.getElementById('goldDisp').innerText = gold;
     document.getElementById('heatDisp').innerText = Math.floor(heat);
 }
 
 function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#0b1116";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Draw Road
-    ctx.strokeStyle = "#2b1d12"; ctx.lineWidth = 65; ctx.lineCap = "round";
+    // Path
+    ctx.strokeStyle = "#3d2a1a"; ctx.lineWidth = 60; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y);
     path.forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
 
-    // 2. Draw Towers
+    // Towers
     towers.forEach(t => {
-        ctx.drawImage(spriteSheet, t.sx, t.sy, t.sw, t.sh, t.x, t.y, 90, 90);
+        ctx.drawImage(spriteSheet, t.sx, t.sy, t.sw, t.sh, t.x, t.y, 80, 80);
     });
 
-    // 3. Draw Enemies (Magma Mine: sx:5, sy:735)
+    // Enemies (Magma Mine)
     enemies.forEach(en => {
-        ctx.drawImage(spriteSheet, 5, 735, 85, 85, en.x - 35, en.y - 35, 70, 70);
+        ctx.drawImage(spriteSheet, 8, 738, 75, 75, en.x - 30, en.y - 30, 60, 60);
     });
 
-    // 4. Draw Projectiles
-    ctx.fillStyle = "#ffcc00";
-    projectiles.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill(); });
+    // Bullets
+    ctx.fillStyle = "#ffff00";
+    projectiles.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); });
 
-    // 5. Shop UI
+    // UI
     ctx.fillStyle = "rgba(0,0,0,0.9)";
     ctx.fillRect(0, canvas.height-120, canvas.width, 120);
     shopItems.forEach((item, i) => {
-        let x = i * (canvas.width/3) + (canvas.width/6) - 40;
-        ctx.drawImage(spriteSheet, item.sx, item.sy, item.sw, item.sh, x, canvas.height-105, 80, 80);
+        let x = i * (canvas.width/3) + (canvas.width/6) - 35;
+        ctx.drawImage(spriteSheet, item.sx, item.sy, item.sw, item.sh, x, canvas.height-100, 70, 70);
     });
 
-    // 6. Ghost & Range
     if (selectedTower) {
-        ctx.globalAlpha = 0.5;
-        ctx.drawImage(spriteSheet, selectedTower.sx, selectedTower.sy, selectedTower.sw, selectedTower.sh, selectedTower.x, selectedTower.y, 90, 90);
-        ctx.globalAlpha = 1.0;
-        ctx.beginPath(); ctx.arc(selectedTower.x+45, selectedTower.y+45, selectedTower.range, 0, Math.PI*2);
-        ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.stroke();
+        const onPath = isPosOnPath(selectedTower.x+40, selectedTower.y+40);
+        ctx.beginPath(); ctx.arc(selectedTower.x+40, selectedTower.y+40, selectedTower.range, 0, Math.PI*2);
+        ctx.fillStyle = onPath ? "rgba(255,0,0,0.2)" : "rgba(0,255,0,0.1)"; ctx.fill();
+        ctx.drawImage(spriteSheet, selectedTower.sx, selectedTower.sy, selectedTower.sw, selectedTower.sh, selectedTower.x, selectedTower.y, 80, 80);
     }
 
     if (!gameActive) {
-        ctx.fillStyle = "#ff8800"; ctx.textAlign = "center"; ctx.font = "bold 22px Courier";
-        ctx.fillText("TAP TO START CATACLYSM", canvas.width/2, canvas.height/2);
+        ctx.fillStyle = "orange"; ctx.textAlign = "center"; ctx.font = "bold 24px Courier";
+        ctx.fillText("TAP TO START", canvas.width/2, canvas.height/2);
     }
 }
 
@@ -190,21 +188,15 @@ function gameLoop(time) {
     let frameTime = (time - lastTime) / 1000;
     lastTime = time;
     accumulator += Math.min(frameTime, 0.1);
-    while (accumulator >= deltaTime) {
-        update(deltaTime);
-        accumulator -= deltaTime;
-    }
+    while (accumulator >= deltaTime) { update(deltaTime); accumulator -= deltaTime; }
     draw();
     requestAnimationFrame(gameLoop);
 }
 
-function resize() { 
-    canvas.width = window.innerWidth; 
-    canvas.height = window.innerHeight; 
-}
-
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 window.addEventListener('resize', resize);
 spriteSheet.onload = () => { resize(); requestAnimationFrame(gameLoop); };
+resize();
 </script>
 </body>
 </html>
