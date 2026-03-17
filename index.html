@@ -6,27 +6,60 @@
     <title>Volcano Cataclysm V10</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1116; font-family: 'Courier New', Courier, monospace; }
-        #gameCanvas { 
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
-            display: block; z-index: 1; touch-action: none; 
-            image-rendering: -webkit-optimize-contrast; image-rendering: pixelated;
-        }
+        #gameCanvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: block; z-index: 1; touch-action: none; }
         #ui-layer { position: absolute; top: 20px; left: 20px; z-index: 10; color: #fff; pointer-events: none; text-shadow: 2px 2px #000; }
         .stat { font-size: 22px; font-weight: bold; margin-bottom: 5px; }
-        #debug-bar { color: #00ff00; font-size: 11px; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 4px; pointer-events: auto; }
+        #debug-bar { color: #00ff00; font-size: 12px; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 4px; }
     </style>
 </head>
 <body>
     <div id="ui-layer">
         <div class="stat">GOLD: <span id="goldDisp">500</span></div>
         <div class="stat" style="color: #ff4500;">HEAT: <span id="heatDisp">0</span>%</div>
-        <div id="debug-bar">
-            STATUS: <span id="engineStatus">INITIALIZING...</span><br>
-            ENEMIES: <span id="enCount">0</span> | FPS: <span id="fpsCount">0</span>
-        </div>
+        <div id="debug-bar">STATUS: <span id="engineStatus">LOADING ASSETS...</span></div>
     </div>
     <canvas id="gameCanvas"></canvas>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d', { alpha: false });
+const ctx = canvas.getContext('2d');
+const spriteSheet = new Image();
+spriteSheet.src = 'v10_volcano_master_atlas.PNG';
+
+let gold = 500;
+let heat = 0;
+let gameActive = false;
+let towers = [];
+let enemies = [];
+let projectiles = [];
+let selectedTower = null;
+
+// Performance Timing
+let lastTime = performance.now();
+const deltaTime = 1/60;
+let accumulator = 0;
+let spawnTimer = 0;
+
+// Pathing
+const path = [{x: -50, y: 300}, {x: 250, y: 300}, {x: 250, y: 550}, {x: 850, y: 550}];
+
+// Refined coordinates to dodge the text labels on your sheet
+const shopItems = [
+    { type: 'Devil', sx: 5,  sy: 55,  sw: 85, sh: 85, cost: 250, range: 160, fireRate: 0.6 },
+    { type: 'Dart',  sx: 5,  sy: 225, sw: 85, sh: 85, cost: 50,  range: 130, fireRate: 0.4 },
+    { type: 'Ice',   sx: 325, sy: 225, sw: 85, sh: 85, cost: 150, range: 110, fireRate: 1.0 }
+];
+
+// --- Mobile Input Handling ---
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const tx = e.touches[0].clientX;
+    const ty = e.touches[0].clientY;
+
+    if (!gameActive) { gameActive = true; return; }
+
+    // Shop Area Detection (Bottom 120px)
+    if (ty > window.innerHeight - 120) {
+        let index = Math.floor(tx / (window.innerWidth / 3));
+        if (shopItems[index] && gold >= shopItems[index].cost) {
+            selectedTower = { ...shopItems[index], x: tx - 45, y: ty - 45, lastFired:
